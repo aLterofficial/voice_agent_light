@@ -1,0 +1,1021 @@
+menu "Voice assistant configuration"
+
+    menu "Network"
+
+        # Two slots. Slot 1 is normally the venue/lab network, slot 2 a phone
+        # hotspot. Both are tried in turn on every reconnect, so the device
+        # works in either place without a recompile.
+
+        config WIFI_SSID
+            string "Network 1 - WiFi SSID"
+            default "YOUR_WIFI_SSID"
+            help
+                Name of the 2.4 GHz WiFi network. The ESP32-S3 has no 5 GHz
+                radio, so a phone hotspot must be set to 2.4 GHz (iPhone:
+                "Maximise Compatibility"; Android: set the AP band to 2.4 GHz).
+
+                Leave this as YOUR_WIFI_SSID to disable slot 1.
+
+        config WIFI_PASSWORD
+            string "Network 1 - WiFi password"
+            default "YOUR_WIFI_PASSWORD"
+
+        config WIFI_SSID_2
+            string "Network 2 - WiFi SSID (e.g. phone hotspot)"
+            default "YOUR_WIFI_SSID_2"
+            help
+                Optional second network. Leave as YOUR_WIFI_SSID_2 to disable.
+
+                This is the slot to use for a phone hotspot: fill in the
+                hotspot's SSID and password here and the device will fall back
+                to it whenever the first network is unavailable. On a phone,
+                Android often prefixes the SSID with the device name (for
+                example "Pixel_1234"), so check the exact spelling on the
+                phone rather than assuming.
+
+        config WIFI_PASSWORD_2
+            string "Network 2 - WiFi password"
+            default "YOUR_WIFI_PASSWORD_2"
+
+        config WIFI_CANDIDATE_MAX
+            int "Maximum number of candidate networks"
+            range 1 4
+            default 2
+            help
+                Upper bound on how many SSID slots the WiFi manager keeps.
+                Must be at least as large as the number of slots filled in
+                above, and is used to size some stack arrays.
+
+        config WIFI_MAX_RETRY
+            int "Max connection retries before giving up (legacy, 0 = never)"
+            range 0 100
+            default 0
+            help
+                Superseded by the exponential-backoff reconnect loop. Kept
+                because the value still appears in sdkconfig from older
+                builds; 0 means "never give up", which is the intended
+                behaviour for an unattended device at a venue.
+
+    endmenu
+
+    menu "DeepSeek"
+
+        config DEEPSEEK_BASE_URL
+            string "API base URL"
+            default "https://api.deepseek.com"
+            help
+                Base URL of the OpenAI-compatible endpoint. The client
+                appends "/chat/completions" (unless the value already ends
+                with it, so pasting the full URL also works).
+
+                Official service:
+                    https://api.deepseek.com
+
+                Third-party relay / proxy (中间站), for example:
+                    https://router.shengsuanyun.com/api/v1
+
+                A relay hands out keys that ONLY work against its own
+                host, so leaving this at the official URL while using a
+                relay key gives HTTP 401.
+
+                The HTTPS certificate must be in the ESP-IDF CA bundle.
+                That covers public CAs; a relay using a self-signed cert
+                will not validate.
+
+        config DEEPSEEK_SEND_THINKING_PARAMS
+            bool "Send thinking / reasoning_effort parameters"
+            default y
+            help
+                The official DeepSeek API accepts "thinking" and
+                "reasoning_effort"; disabling them keeps the spoken reply
+                short and low-latency.
+
+                Some relays and older OpenAI-compatible servers reject
+                unknown request fields with HTTP 400. Turn this OFF if the
+                request fails with 400 and the body mentions an unknown or
+                unexpected parameter.
+
+                Has no effect on the reply text itself either way - it only
+                controls whether the model is asked to skip reasoning.
+
+        config DEEPSEEK_API_KEY
+            string "API key"
+            default "sk-REPLACE_ME"
+            help
+                Key from the service selected by DEEPSEEK_BASE_URL.
+
+                Official keys look like "sk-..." (about 35 characters).
+                Relay keys vary in length and often do NOT start with
+                "sk-".
+
+                Stored in sdkconfig, which is git-ignored.
+
+        config DEEPSEEK_MODEL
+            string "Model name"
+            default "deepseek-flash"
+            help
+                Official service:
+                    deepseek-flash  = DeepSeek-V4.1-Flash (fast, cheap)
+                    deepseek-v4-pro = DeepSeek-V4-Pro
+
+                A relay may use different names - it usually publishes its
+                own list (often at <base>/models). The name is passed
+                through unchanged, so use whatever the relay documents.
+
+        config DEEPSEEK_SYSTEM_PROMPT
+            string "System prompt (persona)"
+            default "你是一个友善的智能语音助手，回答要简短口语化，控制在50字以内，不要使用markdown格式。"
+
+        config DEEPSEEK_MAX_TOKENS
+            int "Max reply tokens"
+            range 32 4096
+            default 200
+            help
+                Keep this small - the reply is spoken aloud, long answers
+                are tedious to listen to.
+
+    endmenu
+
+    menu "iFlytek (讯飞)"
+
+        config IFLYTEK_APP_ID
+            string "AppID"
+            default "REPLACE_ME_APPID"
+
+        config IFLYTEK_API_KEY
+            string "APIKey"
+            default "REPLACE_ME_APIKEY"
+
+        config IFLYTEK_API_SECRET
+            string "APISecret"
+            default "REPLACE_ME_APISECRET"
+
+        config IFLYTEK_STT_HOST
+            string "STT host"
+            default "iat-api.xfyun.cn"
+            help
+                iat-api.xfyun.cn  = 语音听写 (short, one-shot)
+                ws-api.xfyun.cn   = 语音转写 (long-form)
+
+        config IFLYTEK_TTS_HOST
+            string "TTS host"
+            default "tts-api.xfyun.cn"
+
+        config IFLYTEK_TTS_VOICE
+            string "TTS voice"
+            default "xiaoyan"
+            help
+                xiaoyan  = 讯飞小燕 (female, default)
+                aisjiuxu = 许久
+                aisxping = 小萍
+                aisjinger= 小婧
+
+        config IFLYTEK_TTS_SPEED
+            int "TTS speed (0-100)"
+            range 0 100
+            default 50
+
+    endmenu
+
+    menu "SiliconFlow (硅基流动)"
+
+        # Bearer-token + plain HTTP, modelled on the OpenAI audio API. That is
+        # the reason this backend exists: it needs ONE key that is handed out on
+        # signup, where iFlytek needs AppID + APIKey + APISecret fed into an
+        # HMAC-SHA256 signature over a WebSocket URL.
+        #
+        # Because the endpoints follow the OpenAI shape, swapping to another
+        # compatible provider (or a self-hosted FunASR/sherpa-onnx server that
+        # exposes the same two routes) is only a base-URL and model-name change.
+
+        config SILICONFLOW_BASE_URL
+            string "API base URL"
+            default "https://api.siliconflow.cn/v1"
+            help
+                Note the ".cn" - SiliconFlow runs separate cn and com hosts and
+                a key issued on one is rejected by the other.
+
+                The path is optional: "https://api.siliconflow.cn" and
+                "https://api.siliconflow.cn/v1" are both accepted, and pasting
+                the complete endpoint URL by mistake also works.
+
+        config SILICONFLOW_API_KEY
+            string "API key"
+            default "REPLACE_ME_SILICONFLOW_KEY"
+            help
+                From the SiliconFlow console (API 密钥 page). A single key
+                covers both the transcription and the speech endpoints.
+
+        config SILICONFLOW_STT_MODEL
+            string "Speech-to-text model"
+            default "FunAudioLLM/SenseVoiceSmall"
+            help
+                The transcription endpoint accepts exactly two values:
+                    FunAudioLLM/SenseVoiceSmall  (SenseVoice, strong Chinese)
+                    TeleAI/TeleSpeechASR
+                SenseVoiceSmall is the FunASR-family model and the default.
+
+                Anything else - including Qwen3-ASR - is rejected, because the
+                model whitelist for this route is maintained separately from the
+                text-model catalogue.
+
+        config SILICONFLOW_TTS_MODEL
+            string "Text-to-speech model"
+            default "FunAudioLLM/CosyVoice2-0.5B"
+            help
+                FunAudioLLM/CosyVoice2-0.5B  (Chinese + dialects, recommended)
+                fishaudio/fish-speech-1.5    (12 languages; note that the
+                                              provider bills this one against
+                                              topped-up balance only)
+
+        config SILICONFLOW_TTS_VOICE
+            string "TTS voice"
+            default "FunAudioLLM/CosyVoice2-0.5B:anna"
+            help
+                The voice name must be prefixed with the model name, or the
+                service rejects it. System presets:
+
+                    female: anna (calm), bella (passionate),
+                            claire (gentle), diana (cheerful)
+                    male:   alex (steady), benjamin (deep),
+                            charles (magnetic), david (cheerful)
+
+                Example: FunAudioLLM/CosyVoice2-0.5B:anna
+
+        config SILICONFLOW_TTS_SPEED
+            string "TTS speed"
+            default "1.0"
+            help
+                Float between 0.25 and 4.0. A string rather than a number
+                because the JSON body needs the decimal point preserved.
+
+        config SILICONFLOW_TTS_GAIN
+            string "TTS gain (dB)"
+            default "0.0"
+            help
+                Float between -10 and 10. Raise it if playback is too quiet for
+                the MAX98357A and speaker; the default leaves the level alone.
+
+    endmenu
+
+    menu "Speech backends"
+
+        # Both backends stay compiled and switchable so the iFlytek path can be
+        # restored without editing code if a key or the free quota runs out.
+
+        choice STT_BACKEND
+            prompt "Speech-to-text backend"
+
+            config STT_BACKEND_IFLYTEK
+                bool "iFlytek 语音听写"
+                help
+                    WebSocket + HMAC-SHA256 signature. Needs three credentials.
+
+            config STT_BACKEND_SILICONFLOW
+                bool "SiliconFlow (SenseVoice)"
+                help
+                    Plain HTTPS POST of a WAV file, authenticated with a single
+                    Bearer token. Fewer moving parts and no signature code path
+                    to get wrong.
+
+        endchoice
+
+        config TTS_LOCAL_ENABLE
+            bool "Try a local OpenAI-compatible TTS server before the cloud"
+            default n
+            help
+                The local Qwen3-TTS service speaks the same /v1/audio/speech
+                shape as SiliconFlow, so the same client code targets it - only
+                the URL, key and voice differ. Measured on an RTX 5060 Laptop:
+                first audio in 0.42-0.56 s, against 2.5-14 s from the cloud.
+
+                When it fails (laptop asleep, off the network) the configured
+                cloud backend is still tried, so this is an accelerator rather
+                than a hard dependency.
+
+        config TTS_LOCAL_BASE_URL
+            string "Local TTS base URL"
+            depends on TTS_LOCAL_ENABLE
+            default "http://192.168.1.100:8000/v1"
+            help
+                Host:port of tts-server/app.py. The device must be on the same
+                LAN - a laptop on campus wifi cannot be reached by a board on a
+                phone hotspot.
+
+        config TTS_LOCAL_VOICE
+            string "Local TTS voice (speaker id)"
+            depends on TTS_LOCAL_ENABLE
+            default "sohee"
+
+        choice TTS_BACKEND
+            prompt "Text-to-speech backend"
+
+            config TTS_BACKEND_IFLYTEK
+                bool "iFlytek 在线语音合成"
+
+            config TTS_BACKEND_SILICONFLOW
+                bool "SiliconFlow (CosyVoice2)"
+                help
+                    Requests raw PCM from the service, so the bytes that arrive
+                    are playable as-is with no container to strip.
+
+        endchoice
+
+    endmenu
+
+    menu "Audio"
+
+        config AUDIO_SAMPLE_RATE
+            int "Sample rate (Hz)"
+            range 8000 48000
+            default 16000
+            help
+                16000 is required by the iFlytek STT service and is also
+                what WakeNet expects. Do not change unless you know why.
+
+        config AUDIO_MIC_SHIFT
+            int "Microphone right-shift (bigger = less gain)"
+            range 8 18
+            default 14
+            help
+                The INMP441 is 24-bit and sits well below full scale at
+                conversational distance, so the sample is shifted right to fit
+                into 16 bits. Shift 14 is 4x gain, 13 is 8x.
+
+                Measured on this build: at 8x the transcriber returned an empty
+                string for every utterance, at 4x it recognises speech. More
+                gain is not better - it clips the peaks and the waveform that
+                reaches the model is no longer intelligible.
+
+                The shift is followed by saturation, never a plain cast: an
+                overflowing cast wraps the sign bit and turns loud syllables
+                into broadband noise.
+
+        config AUDIO_OUT_PREROLL_MS
+            int "Pre-roll before playback starts (ms)"
+            range 0 3000
+            default 1200
+            help
+                How much audio to hold before the first sample is written.
+
+                The local TTS server produces audio at ~2x realtime, but it does
+                not arrive evenly: measured delivery stalls on a phone hotspot
+                reach ~600 ms, which drained the DMA and was audible as a gap
+                mid-sentence. Buffering this much first turns uneven arrival
+                into a non-event.
+
+                Costs latency: the first word is heard this much later. 0
+                disables the pre-roll and plays as data arrives.
+
+        config AUDIO_OUT_SAMPLE_RATE
+            int "Playback sample rate (Hz)"
+            range 8000 48000
+            default 16000
+            help
+                Deliberately separate from AUDIO_SAMPLE_RATE.
+
+                The amplifier has its own I2S bus, so it can run at a different
+                rate from the microphone. The local Qwen3-TTS server produces
+                24 kHz natively; asking it for 16 kHz would force a resample on
+                every streamed chunk, which is audible at chunk boundaries.
+                Set this to 24000 when TTS_LOCAL_ENABLE is on.
+
+        config AUDIO_RECORD_SECONDS
+            int "Max recording length (seconds)"
+            range 1 30
+            default 6
+            help
+                Hard cap per utterance. Recording also stops early when the
+                silence detector trips.
+
+        config AUDIO_SILENCE_MS
+            int "Silence duration that ends recording (ms)"
+            range 300 3000
+            default 1000
+            help
+                If the signal stays below the silence threshold for this
+                long, recording stops and the utterance is sent for
+                recognition.
+
+        config AUDIO_SILENCE_THRESHOLD
+            int "Silence threshold (RMS, 16-bit scale)"
+            range 50 20000
+            default 600
+            help
+                RMS below this counts as silence. Raise it in a noisy room,
+                lower it if the device cuts you off mid-sentence.
+
+    endmenu
+
+    menu "Wake word"
+
+        choice WAKE_BACKEND
+            prompt "Wake word backend"
+
+            config WAKE_BACKEND_VAD
+                bool "Energy VAD (no extra components)"
+                help
+                    Always available. Triggers on any sufficiently loud
+                    sound, so it is easy to trigger by accident. Useful for
+                    bring-up and testing before wake-word assets are in place.
+
+            config WAKE_BACKEND_WAKENET
+                bool "ESP-SR WakeNet (offline neural wake word)"
+                help
+                    Real wake word detection. Requires the esp-sr managed
+                    component and a model partition (several MB of flash).
+                    Far more accurate, and the intended configuration.
+
+        endchoice
+
+        config WAKE_TRIGGER_RMS
+            int "VAD trigger RMS"
+            range 200 30000
+            default 2500
+            depends on WAKE_BACKEND_VAD
+
+        config WAKENET_MODEL
+            string "WakeNet model name"
+            default "wn9_hilexin"
+            depends on WAKE_BACKEND_WAKENET
+            help
+                wn9_hilexin  = "你好小鑫"
+                wn9_nihaoxiaozhi = "你好小智"
+                Check the ESP-SR docs for the model that ships with your
+                IDF version.
+
+    endmenu
+
+    menu "Pins"
+
+        # Defaults chosen to avoid every pin that IDF reserves or warns about:
+        #   0     BOOT strapping
+        #   3     JTAG (also UART0 RX, the console)
+        #   19/20 USB-Serial-JTAG (and USB-OTG on some parts)
+        #   26-32 SPI flash / octal PSRAM
+        #   33-37 octal PSRAM (S3 with embedded PSRAM)
+        #   39-42 JTAG
+        #   43/44 UART0 TX/RX, the console
+        #   45/46 strapping (VDD_SPI / boot mode)
+        # GPIO4-18 and 21 are safe for general use; the four below are all in
+        # that range and are not otherwise spoken for on a typical S3 board.
+
+        config PIN_I2S_BCLK
+            int "I2S bit clock (microphone bus only)"
+            range 0 48
+            default 4
+
+        config PIN_I2S_WS
+            int "I2S word select / LRCK (microphone bus only)"
+            range 0 48
+            default 5
+
+        config PIN_I2S_MIC_DATA
+            int "I2S data from INMP441 (SD)"
+            range 0 48
+            default 6
+
+        config PIN_I2S_AMP_DATA
+            int "I2S data to MAX98357A (DIN)"
+            range 0 48
+            default 7
+
+        config TTS_SELFTEST
+            bool "Synthesise and play one sentence at boot"
+            default y
+            help
+                Measures the active TTS backend end to end without needing a
+                successful speech recognition first, and plays the result so the
+                analogue path can be judged at the same time. Costs one TTS
+                request per boot - turn it off once the backend is trusted.
+        config PIN_I2S_AMP_BCLK
+            int "MAX98357A bit clock (its own clock, not shared)"
+            range 0 48
+            default 12
+            help
+                The amplifier runs its own I2S bus. Sharing BCLK/WS with the
+                microphone means two peripherals drive the same pins, and the
+                slave side then has no guaranteed phase relationship between
+                its data output and that clock - audible as hiss on top of a
+                pure tone. Two spare pins are cheaper than that.
+
+        config PIN_I2S_AMP_WS
+            int "MAX98357A word select / LRCK (its own clock)"
+            range 0 48
+            default 13
+
+        config PIN_AMP_ENABLE
+            int "MAX98357A SD / enable pin (-1 to disable)"
+            range -1 48
+            default 15
+            help
+                Drive high to un-mute the amplifier. Set to -1 if SD is
+                hard-wired high on your board.
+
+        config PIN_LED
+            int "On-board addressable RGB LED"
+            range 0 48
+            default 48
+
+    endmenu
+
+    config BOOT_BUTTON_TRIGGER
+        bool "Press BOOT (GPIO0) to start a turn manually"
+        default y
+        help
+            Useful while bringing the device up: short-press BOOT to force
+            a recording without waiting for the wake word.
+
+    menu "Low power (battery / weak USB port)"
+
+        # See main/power_save.c for the full reasoning, and be aware that on
+        # THIS board the whole menu has been measured as having no effect:
+        # the reset lands inside esp_wifi_start(), and the runtime TX power
+        # API cannot be called until esp_wifi_start() has returned, so it is
+        # never reached. It is kept for boards that are less far short.
+
+        config LOW_POWER_MODE
+            bool "Enable low power mode"
+            default n
+            help
+                Reduces the radio's peak current so the board may survive on
+                a battery bank or a weak USB port.
+
+                MEASURED: NO EFFECT ON THIS BOARD. Instrumenting the station
+                startup showed the brownout lands inside esp_wifi_start():
+
+                    [4/6] esp_wifi_init (RF calibration)   <- completes
+                    [5/6] esp_wifi_init returned           <- so calibration
+                                                              is fine
+                    [6/6] esp_wifi_start                   <- never returns
+
+                esp_wifi_set_max_tx_power() is documented to require
+                esp_wifi_start() to have completed, so the call this option
+                depends on is unreachable here. Why the option is still
+                present: on a supply that is only slightly short it should
+                help, and the diagnostic value of a negative result is real.
+
+                It does NOT fix the supply either way. It lowers the current
+                demand; it cannot raise the voltage. See
+                BROWNOUT-DIAGNOSIS.md and the README.
+
+                The main effect, where it does apply, is a much lower WiFi
+                transmit power, which cuts range. Fine for a phone hotspot
+                on the same table.
+
+        config LOW_POWER_TX_POWER_DBM
+            int "WiFi transmit power cap (dBm)"
+            depends on LOW_POWER_MODE
+            range 2 20
+            default 2
+            help
+                Applied at runtime via esp_wifi_set_max_tx_power().
+
+                This is the lever with real headroom: the driver default
+                comes from CONFIG_ESP_PHY_MAX_WIFI_TX_POWER, whose Kconfig
+                floor is 10 dBm, but this API accepts values down to 2 dBm.
+                Transmit burst current scales roughly with linear output
+                power, so 2 dBm is several times less current than 10 dBm at
+                exactly the moment the rail collapses.
+
+                Range guidance: 2 dBm (~1.6 mW) is good for a hotspot on the
+                same desk. Use 8-10 dBm if you need a few metres.
+
+                Note it only takes effect if esp_wifi_start() returns, which
+                it does not on this board - see LOW_POWER_MODE above.
+
+        config LOW_POWER_WIFI_MAX_MODEM
+            bool "Aggressive WiFi sleep (MAX_MODEM)"
+            depends on LOW_POWER_MODE
+            default n
+            help
+                WIFI_PS_MAX_MODEM sleeps for listen_interval beacon periods
+                instead of waking on every DTIM, which draws less. The cost
+                is latency and, on a busy or lossy AP, a real risk of missed
+                beacons being read as the AP disappearing - which drops the
+                link.
+
+                Leave this off unless MIN_MODEM still is not enough; losing
+                the connection is worse than a higher idle draw here.
+
+        config LOW_POWER_CPU_MAX_MHZ
+            int "Maximum CPU frequency (MHz)"
+            depends on LOW_POWER_MODE
+            range 80 240
+            default 160
+            help
+                Requires CONFIG_PM_ENABLE. Lowering the CPU ceiling cuts the
+                compute share of the current budget, but NOT the radio burst,
+                which is what actually trips the detector - measured on its
+                own as ineffective. Kept because it stacks with the others.
+
+        config LOW_POWER_CPU_MIN_MHZ
+            int "Minimum CPU frequency (MHz)"
+            depends on LOW_POWER_MODE
+            range 80 240
+            default 80
+            help
+                Frequency used when nothing holds a power-management lock.
+                Requires CONFIG_PM_ENABLE.
+
+    endmenu
+
+    menu "Servo (panel switch actuator)"
+
+        # A concealed 86-type panel switch is a mechanical rocker with a
+        # snap-over action: it needs real torque and tens of degrees of travel.
+        # Two consequences for this project:
+        #   * the servo must be powered from the 5V rail on its own branch -
+        #     it can draw 0.7-1.5 A when starting or when stalled against the
+        #     switch, which this board's supply cannot absorb (DIAGNOSIS-POWER.md)
+        #   * the endpoints below must be measured on the bench, not assumed;
+        #     a servo buzzing against a mechanical stop draws stall current
+        #     continuously.
+
+        config SERVO_ENABLE
+            bool "Enable the servo output"
+            default n
+            help
+                Drives an RC servo (SG90 / MG90S class) from a hardware PWM
+                channel, for throwing a panel switch.
+
+                The servo's signal wire goes straight to the GPIO - there is no
+                driver IC to add, and no level shifter: the servo's signal input
+                is high impedance and accepts 3.3V logic.
+
+                What this option does NOT do is power the servo. That has to
+                come from the 5V rail on a separate branch with its own bulk
+                capacitor, or moving the servo will reset the board.
+
+        config SERVO_GPIO
+            int "Servo signal GPIO"
+            depends on SERVO_ENABLE
+            default 5
+            range 1 48
+            help
+                GPIO5 by choice. Avoid 0/3/45/46 (strapping), 19/20 (native
+                USB), 26-37 (flash and PSRAM) and 43/44 (console UART).
+
+        config SERVO_FREQ_HZ
+            int "PWM frame rate (Hz)"
+            depends on SERVO_ENABLE
+            default 50
+            range 40 400
+            help
+                Standard analogue servos expect 50 Hz (a 20 ms frame). Digital
+                servos accept up to 300 Hz and run smoother, but if you are not
+                sure the part is digital, leave this at 50.
+
+        config SERVO_PULSE_MIN_US
+            int "Pulse width at the minimum angle (us)"
+            depends on SERVO_ENABLE
+            default 1000
+            range 300 2500
+
+        config SERVO_PULSE_MAX_US
+            int "Pulse width at the maximum angle (us)"
+            depends on SERVO_ENABLE
+            default 2000
+            range 300 2500
+
+        config SERVO_ANGLE_MIN_DEG
+            int "Minimum usable angle (deg)"
+            depends on SERVO_ENABLE
+            default 20
+            range 0 180
+            help
+                The safe mechanical endpoint, not 0. Most 9 g servos buzz or
+                stall somewhere below 10 deg and above 170 deg; set this to the
+                smallest angle the arm reaches without straining.
+
+        config SERVO_ANGLE_MAX_DEG
+            int "Maximum usable angle (deg)"
+            depends on SERVO_ENABLE
+            default 160
+            range 0 180
+
+        config SERVO_POS_A_DEG
+            int "Switch position A (deg)"
+            depends on SERVO_ENABLE
+            default 45
+            range 0 180
+            help
+                One of the switch's two stable states, in servo degrees.
+                Found by testing: command angles until the switch snaps over,
+                then use that angle with a couple of degrees of margin.
+
+        config SERVO_POS_B_DEG
+            int "Switch position B (deg)"
+            depends on SERVO_ENABLE
+            default 115
+            range 0 180
+
+        config SERVO_STEP_DEG
+            int "Ramp step size (deg)"
+            depends on SERVO_ENABLE
+            default 2
+            range 1 30
+            help
+                A move is walked in steps of this size. Smaller = slower and
+                gentler on the supply; larger = snappier but a bigger current
+                spike at the start of the move.
+
+        config SERVO_STEP_MS
+            int "Delay between ramp steps (ms)"
+            depends on SERVO_ENABLE
+            default 20
+            range 1 200
+            help
+                20 ms per 2 deg step means roughly 1.8 s for a 90 deg throw.
+
+        config SERVO_TEST_MODE
+            bool "TEST MODE: servo bench mode (no WiFi, no audio)"
+            depends on SERVO_ENABLE
+            default n
+            help
+                Starts the console and the servo, then stops: the radio and the
+                audio path are never initialised.
+
+                Why this is worth having: with the assistant firmware running,
+                this board resets about 1.4 times a second during radio startup,
+                which makes it impossible to watch a servo move and judge
+                whether the arm is stalling against the switch. In this mode the
+                board is electrically quiet, so the servo can be exercised at
+                leisure with the console commands:
+
+                    a / b   move to the two switch positions
+                    t       toggle between them
+                    , / .   jog 5 deg down / up  <- use these to find the stops
+                    p       release (no holding torque, no standing current)
+                    s       show the current configuration
+
+                The angles you discover here are what CONFIG_SERVO_ANGLE_MIN_DEG,
+                _MAX_DEG, POS_A_DEG and POS_B_DEG should be set to.
+
+                Turn it off to get the assistant back.
+
+    endmenu
+
+    menu "Radio bring-up (current shedding at the reset point)"
+
+        # MEASURED 2026-10-02 with the board on USB: the rail collapses much
+        # earlier than these notes used to claim. Step markers showed the
+        # reset landing inside esp_wifi_init(), immediately after the WiFi
+        # library prints "Allocate MAC register memory" - the same place on
+        # every boot of a 20 s window (10 brownouts in 20 s, highest app
+        # timestamp 762 ms). esp_wifi_start() is never reached at all on this
+        # supply, so every runtime TX-power lever is unreachable by
+        # construction, which is why none of them ever helped.
+        #
+        # What remains is to make the radio's power-up window as cheap as
+        # possible: fewer things switching at the same moment, and a lower CPU
+        # clock while the MAC/PHY domain comes up. That is what this menu does.
+
+        config BRINGUP_LOW_CPU
+            bool "Drop the CPU to 80 MHz while the radio powers up"
+            default n
+            help
+                The S3 comes out of reset at 240 MHz. Dynamic frequency
+                scaling (CONFIG_PM_ENABLE) is already on for the runtime, but
+                the boot path reaches esp_wifi_init() at full clock, so the
+                radio power-up spike rides on top of the compute current at
+                its maximum.
+
+                This caps the CPU at 80 MHz just before esp_wifi_init() and
+                restores the normal ceiling once the radio is up - roughly a
+                third of the compute current at the moment the rail collapses.
+
+                It cannot raise the voltage, so on a supply this far short it
+                may well change nothing. It is still the cheapest thing to
+                try: one build, no soldering.
+
+        config BRINGUP_QUIET_PERIPHERALS
+            bool "Silence I2S and the LED during radio bring-up"
+            default n
+            help
+                Stops both I2S channels (microphone and amplifier bit clocks)
+                and blanks the RGB LED while the radio powers up, then restores
+                them once the station has started.
+
+                Together these are a real part of the current at the spike:
+                the I2S bit clock runs continuously even with no audio, and a
+                bright WS2812 draws tens of milliamps by itself. Silence also
+                settles the amplifier question - GPIO18 is driven low before
+                the radio comes up, so the MAX98357A cannot be what tips the
+                rail over.
+
+                Costs a few milliseconds of extra boot time. If the audio or
+                the LED fails to come back, the log says so explicitly.
+
+        config BRINGUP_TRACE
+            bool "BROWNOUT DIAGNOSTIC: verbose bring-up markers with timing"
+            default n
+            help
+                The fault has already been narrowed to esp_wifi_init(), which
+                is a 100+ ms window inside a WiFi library blob. This adds a
+                finer layer of markers around that window, each carrying the
+                elapsed time and the free internal heap, so a change that
+                moves the reset point by a few milliseconds is still visible.
+
+                Turn it off for normal use: it prints several lines per boot.
+
+    endmenu
+
+    # ---------------------------------------------------------------------
+    # Shared I2C bus settings.
+    #
+    # These live outside the rail monitor menu on purpose: the bus is shared
+    # furniture, and the servo bench mode also probes it (otherwise a dark
+    # OLED there is indistinguishable from a wiring fault). Entries inside a
+    # menu inherit that menu's conditions, so putting them here is also what
+    # makes them visible in every mode.
+    # ---------------------------------------------------------------------
+
+    config I2C_SDA_GPIO
+        int "Shared I2C SDA pin"
+        default 9
+        help
+            Used by the rail monitor's OLED and by the I2C presence check in
+            every other mode. Avoid GPIO19/20 (native USB), GPIO43/44 (UART0
+            console), 26..37 (flash/PSRAM) and 0/3/45/46 (strapping).
+
+    config I2C_SCL_GPIO
+        int "Shared I2C SCL pin"
+        default 8
+        help
+            See I2C_SDA_GPIO.
+
+    config I2C_PROBE_ADDR
+        hex "First I2C address to try"
+        default 0x3C
+        help
+            The usual display addresses are 0x3C and 0x3D. The probe tries this
+            one first and then sweeps 0x08..0x77, so this is only a hint.
+
+    menu "Rail monitor (voltage display, no serial needed)"
+
+        # Why this exists: on a board whose 3.3V rail collapses during the
+        # radio's power-up, a serial console is the wrong instrument - the USB
+        # bridge can drop off the bus at the same moment, and the host sees
+        # "no port" rather than data. A locally driven OLED (+ optional 7-seg
+        # display) keeps reporting the rail minimum across resets, which is
+        # the one measurement that distinguishes "input sagged" from "the
+        # regulator folded back".
+        #
+        # See PROTOCOL-3V3-INJECTION.md and EXPERIMENT-2026-10-02-BROWNOUT.md.
+
+        config RAIL_MONITOR
+            bool "Enable the rail monitor firmware"
+            default n
+            help
+                Replaces the assistant's normal startup with a diagnostic
+                monitor: samples the 3.3V rail through an ADC pin and shows
+                current / 5 s minimum / lowest-since-boot / reset reason and
+                reset count on an I2C OLED, refreshed 4x per second.
+
+                The minimum is what matters. A brownout threshold of 2.44V
+                says only that the rail reached it; the displayed minimum says
+                how far it actually fell, and the reset reason says whether it
+                was the detector or a total collapse.
+
+                Turn this off to get the assistant back.
+
+        config RAIL_ADC_GPIO
+            int "ADC pin used to watch the rail"
+            depends on RAIL_MONITOR
+            range 1 10
+            default 1
+            help
+                Must be an ADC1 pin (GPIO1-10 on the ESP32-S3). ADC2 is not
+                usable while WiFi is active, so the ADC1 range is enforced.
+
+                Wire: 3V3 --[R1]--+--[R2]-- GND, and the midpoint to this pin.
+                Nothing is connected to this pin by default.
+
+        config RAIL_DIVIDER_X100
+            int "Divider ratio x100 (2 = half, 1 = direct)"
+            depends on RAIL_MONITOR
+            range 100 300
+            default 200
+            help
+                The ADC input must stay below about 3.1V, so the rail has to
+                be divided down. With R1 = R2 = 10k the ratio is 2.00, which
+                maps a 3.3V rail to 1.65V - comfortably inside range and far
+                enough from the limit that a rail overshoot cannot damage the
+                pin.
+
+                Set to 100 only if the rail can never exceed 3.1V and you
+                accept that risk.
+
+        config RAIL_OLED_XOFFSET
+            int "OLED column offset (0 = SSD1306, 2 = SH1106)"
+            depends on RAIL_MONITOR
+            range 0 4
+            default 0
+            help
+                Most 0.96 inch modules are SSD1306 and want 0. If the picture
+                is shifted two columns to the right with a strip of noise down
+                one edge, the controller is an SH1106 (132-column RAM) and
+                wants 2.
+
+        config RAIL_SCAN_I2C_PINS
+            bool "Search for the display if the configured pins do not answer"
+            depends on RAIL_MONITOR
+            default y
+            help
+                Probes every plausible GPIO pair for an I2C device when
+                RAIL_I2C_SDA/SCL do not find one, and reports the pair that
+                worked. Costs a second or two at boot and saves a
+                recompile-and-reflash cycle per wiring guess.
+
+                Strapping pins (0/3/45/46), native USB (19/20), flash/PSRAM
+                (26..37) and the console UART (43/44) are never probed.
+
+    endmenu
+
+    config BROWNOUT_DIAG_TRACE
+        bool "BROWNOUT DIAGNOSTIC: trace where the reset lands"
+        default n
+        help
+            Prints a numbered marker before each step of WiFi startup, so the
+            point at which the board resets is visible in the boot log instead
+            of having to be guessed.
+
+            How to read the output. A marginal supply lets startup get only so
+            far before the rail collapses, and the last marker printed is
+            where it died:
+
+                W (622) wifi: [1/6] nvs_flash_init  (WiFi STA startup)
+                W (642) wifi: [2/6] esp_netif_init
+                W (652) wifi: [3/6] esp_event_loop_create_default
+                W (652) wifi: [4/6] esp_wifi_init (RF calibration)
+                W (762) wifi: [5/6] esp_wifi_init returned
+                W (782) wifi: [6/6] esp_wifi_start (first transmit)
+                <reset here, no "[6/6] returned">
+
+            Reaching [5/6] but never "[6/6] ... returned" means RF calibration
+            completed and the reset is inside esp_wifi_start() - which is what
+            this board does. Stopping earlier points at calibration or at the
+            netif/event setup instead.
+
+            Note the ordering: these markers are printed before and after the
+            call they describe, so the last line seen identifies the call that
+            did not finish.
+
+            Why a switch rather than always-on logging: the markers are
+            ESP_LOGW, so they print regardless of the configured log level,
+            and on a healthy board they are pure noise in every boot. Turn
+            this on when investigating, off otherwise.
+
+            There is a companion script that does the capture and analysis:
+
+                powershell -ExecutionPolicy Bypass -File .\trace-boot.ps1
+
+    config SKIP_WIFI
+        bool "BROWNOUT DIAGNOSTIC: do not start WiFi at all"
+        default n
+        help
+            Bring-up aid. When set, the firmware initialises the LED, the
+            recording buffer and both I2S peripherals, then idles printing a
+            heartbeat - it never touches the WiFi radio.
+
+            Use this to tell apart two failure modes that look identical:
+
+              * stable with this option ON and resetting with it OFF
+                  -> the rail collapses under the radio's current draw,
+                     i.e. a genuine supply problem.
+
+              * resetting either way
+                  -> the fault is elsewhere (PSRAM, I2S, a pin conflict)
+                     and the radio is merely the first thing loud enough
+                     to trip it.
+
+            Turn it back off once the diagnosis is made.
+
+    config FORCE_DISABLE_BROWNOUT
+        bool "WORKAROUND: force the brownout detector off at runtime"
+        default n
+        help
+            The Kconfig option CONFIG_ESP_BROWNOUT_DET only stops IDF from
+            *enabling* the detector during startup; it does not disable a
+            detector that is already running, and on the ESP32-S3 the RF
+            power-up path re-arms the PMU comparator regardless. This option
+            calls esp_brownout_disable() explicitly, which is the only way to
+            actually turn it off.
+
+            READ THIS BEFORE ENABLING:
+
+            A brownout reset means the supply really did dip below roughly
+            2.4 V. Suppressing the reset does not fix the dip - it lets the
+            chip keep running outside its specification. Two concrete risks:
+
+              * a write to flash that is interrupted by a real voltage dip
+                can corrupt the image, leaving a board that needs reflashing
+              * the radio and PSRAM may misbehave in ways that are hard to
+                attribute
+
+            Treat this as a bring-up escape hatch so the rest of the pipeline
+            can be exercised, not as a fix. The real remedy is a supply that
+            holds the 3V3 rail up under the radio's current bursts.
+
+endmenu

@@ -1,0 +1,20 @@
+## Component Manager manifest.
+##
+## esp_websocket_client, led_strip and cjson are all distributed through the
+## ESP Component Registry rather than shipping inside the IDF source tree.
+## They are downloaded into ./managed_components (git-ignored) on build.
+##
+## The registry name for the JSON library is lower-case "cjson"; the header it
+## provides is still <cJSON.h> and its CMake component name is "json".
+
+dependencies:
+  idf: ">=6.0"
+
+  espressif/esp_websocket_client:
+    version: "^1.5.0"
+
+  espressif/led_strip:
+    version: "^3.0.0"
+
+  espressif/cjson:
+    version: "^1.7.19"
